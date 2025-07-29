@@ -1,0 +1,8 @@
+requests
+semantic-kernel
+azure-search-documents
+msal
+Pillow
+aiohttp
+azure-cognitiveservices-vision-computervision
+python-dotenv

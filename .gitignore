@@ -1,0 +1,33 @@
+# .gitignore for AgenticAI_UseCases
+# Ignore Python cache and environment files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+.env*
+*.venv
+venv/
+ENV/
+.envrc
+
+# Ignore VS Code settings
+.vscode/
+
+# Ignore secrets and sensitive files
+*.key
+*.pem
+*.crt
+*.pfx
+*.p12
+*.cer
+*.der
+*.jks
+*.env
+.env.*
+
+# Ignore other secrets/configs
+config.json
+secrets.json
+*.secret
+*.token
