@@ -1,0 +1,20 @@
+{
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "title": "Team Create Schema",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Unique identifier for the team."
+        },
+        "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Name of the team."
+        },
+        "description": {
+            "type": "string",
+            "description": "Description of the team."
+        }
+    }
+}

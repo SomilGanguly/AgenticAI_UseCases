@@ -1,0 +1,25 @@
+const createFile = require('./routes/v1/files/createFile.test');
+const createFolder = require('./routes/v1/files/createFolder.test');
+const deleteFile = require('./routes/v1/files/deleteFile.test');
+const deleteFolder = require('./routes/v1/files/deleteFolder.test');
+const downloadFile = require('./routes/v1/files/downloadFile.test');
+const getFilesInFolder = require('./routes/v1/files/getFilesInFolder.test');
+const getFolderByID = require('./routes/v1/files/getFolderByID.test');
+const getRootFolder = require('./routes/v1/files/getRootFolder.test');
+const getSubFolder = require('./routes/v1/files/getSubFolders.test');
+const getAllWorkflows = require('./routes/v1/workflows/getAllWorkflows.test');
+const executeWorkflow = require('./routes/v1/workflows/ExecuteWorkflow.test');
+const getStatus = require('./routes/v1/workflows/getStatus.test');
+
+// createFile();
+// createFolder();
+// deleteFile();
+// deleteFolder();
+// downloadFile();
+// getFilesInFolder();
+// getFolderByID();
+// getRootFolder();
+// getSubFolder();
+// getAllWorkflows();
+// executeWorkflow();
+getStatus();

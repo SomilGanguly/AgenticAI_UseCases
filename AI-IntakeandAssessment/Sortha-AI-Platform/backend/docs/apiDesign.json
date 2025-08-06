@@ -1,0 +1,469 @@
+{
+    "api": {
+        "team": {
+            "create": {
+                "description": "Creates a new team. This is an admin-only operation.",
+                "method": "POST",
+                "path": "/api/team/create",
+                "parameters": {
+                    "name": {
+                        "type": "string",
+                        "required": true,
+                        "description": "The name of the team."
+                    },
+                    "description": {
+                        "type": "string",
+                        "required": true,
+                        "description": "Description of the team."
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Team created successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "./schemas/apiSchemas/team/create.response.json"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request, invalid parameters."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "addUser": {
+                "description": "Adds an existing user to an existing team. This is an admin-only operation.",
+                "method": "POST",
+                "path": "/api/team/addUser",
+                "parameters": {
+                    "teamId": {
+                        "type": "integer",
+                        "required": true,
+                        "description": "The ID of the team."
+                    },
+                    "userId": {
+                        "type": "string",
+                        "required": true,
+                        "description": "The ID of the user to add."
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Member added successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MemberResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request, invalid parameters."
+                    },
+                    "404": {
+                        "description": "Team or member not found."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            }
+        },
+        "user": {
+            "add": {
+                "description": "Adds a new user to the system. This is an admin-only operation.",
+                "method": "POST",
+                "path": "/api/user/add",
+                "parameters": {
+                    "id": {
+                        "type": "string",
+                        "required": true,
+                        "description": "User id of the user based on the entra id."
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "User created successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request, invalid parameters."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "listTeams": {
+                "description": "Lists all teams a user is a member of.",
+                "method": "GET",
+                "path": "/api/user/listTeams",
+                "responses": {
+                    "200": {
+                        "description": "List of teams retrieved successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TeamListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request, invalid user ID."
+                    },
+                    "404": {
+                        "description": "User not found."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            }
+        },
+        "file": {
+            "upload": {
+                "description": "Uploads a file to the server.",
+                "method": "POST",
+                "path": "/api/file/upload",
+                "parameters": {
+                    "file": {
+                        "type": "file",
+                        "required": true,
+                        "description": "The file to upload."
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "File uploaded successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FileResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request, invalid file."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "delete": {
+                "description": "Deletes a file from the server. Only the owner of the file can delete it.",
+                "method": "DELETE",
+                "path": "/api/file/delete",
+                "parameters": {
+                    "fileId": {
+                        "type": "string",
+                        "required": true,
+                        "description": "The ID of the file to delete."
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "File deleted successfully."
+                    },
+                    "400": {
+                        "description": "Bad request, invalid file ID."
+                    },
+                    "404": {
+                        "description": "File not found."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "download/{file_id}": {
+                "description": "Downloads a file from the server.",
+                "method": "GET",
+                "path": "/api/file/download/{file_id}",
+                "responses": {
+                    "200": {
+                        "description": "File downloaded successfully.",
+                        "content": {
+                            "application/octet-stream": {}
+                        }
+                    },
+                    "404": {
+                        "description": "File not found."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            }
+        },
+        "folder": {
+            "create": {
+                "description": "Creates a new folder in the user's directory.",
+                "method": "POST",
+                "path": "/api/folder/create",
+                "parameters": {
+                    "name": {
+                        "type": "string",
+                        "required": true,
+                        "description": "The name of the folder."
+                    },
+                    "parentId": {
+                        "type": "string",
+                        "required": false,
+                        "description": "The ID of the parent folder. If not provided, creates in the root directory."
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Folder created successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FolderResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request, invalid parameters."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "listFiles/{folder_id}": {
+                "description": "Lists all files in a specific folder.",
+                "method": "GET",
+                "path": "/api/folder/listFiles/{folder_id}",
+                "responses": {
+                    "200": {
+                        "description": "List of files retrieved successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FileListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Folder not found."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "delete": {
+                "description": "Deletes a folder. Only the owner of the folder can delete it.",
+                "method": "DELETE",
+                "path": "/api/folder/delete",
+                "parameters": {
+                    "folderId": {
+                        "type": "string",
+                        "required": true,
+                        "description": "The ID of the folder to delete."
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Folder deleted successfully."
+                    },
+                    "400": {
+                        "description": "Bad request, invalid folder ID."
+                    },
+                    "404": {
+                        "description": "Folder not found."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            }
+        },
+        "workflow": {
+            "register": {
+                "description": "Registers a new workflow in the system. This is an admin-only operation.",
+                "method": "POST",
+                "path": "/api/workflow/register",
+                "parameters": {
+                    "name": {
+                        "type": "string",
+                        "required": true,
+                        "description": "The name of the workflow."
+                    },
+                    "description": {
+                        "type": "string",
+                        "required": true,
+                        "description": "Description of the workflow."
+                    },
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WorkflowStep"
+                        },
+                        "required": true,
+                        "description": "List of steps in the workflow."
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Workflow registered successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request, invalid parameters."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "list": {
+                "description": "Lists all workflows available in the system.",
+                "method": "GET",
+                "path": "/api/workflow/list",
+                "responses": {
+                    "200": {
+                        "description": "List of workflows retrieved successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "get/{workflow_id}": {
+                "description": "Retrieves details of a specific workflow by its ID.",
+                "method": "GET",
+                "path": "/api/workflow/get/{workflow_id}",
+                "responses": {
+                    "200": {
+                        "description": "Workflow details retrieved successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Workflow not found."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "trigger": {
+                "description": "Triggers a workflow with the specified parameters.",
+                "method": "POST",
+                "path": "/api/workflow/trigger",
+                "parameters": {
+                    "workflowId": {
+                        "type": "string",
+                        "required": true,
+                        "description": "The ID of the workflow to trigger."
+                    },
+                    "inputs": {
+                        "type": "object",
+                        "required": true,
+                        "description": "Parameters to pass to the workflow."
+                    }
+                },
+                "responses": {
+                    "202": {
+                        "description": "Workflow triggered successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowTriggerResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request, invalid parameters."
+                    },
+                    "404": {
+                        "description": "Workflow not found."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "getRun/{request_id}": {
+                "description": "Retrieves details of a specific workflow run by its request ID.",
+                "method": "GET",
+                "path": "/api/workflow/getRun/{request_id}",
+                "responses": {
+                    "200": {
+                        "description": "Workflow run details retrieved successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowRunResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Workflow run not found."
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            },
+            "listRuns": {
+                "description": "Lists all workflow runs for the authenticated user.",
+                "method": "GET",
+                "path": "/api/workflow/listRuns",
+                "responses": {
+                    "200": {
+                        "description": "List of workflow runs retrieved successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowRunListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error."
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,97 @@
+// This DBML describes the database schema.
+// To visualize this DBML, you can use tools like https://www.dbml.org/ or https://dbdiagram.io/
+
+Table team {
+  id integer [pk, unique]
+  name text [not null]
+  description text [not null]
+}
+
+Table user {
+  id text [pk, unique]
+  name text [not null]
+  email text [not null]
+}
+
+Table file {
+  id integer [pk, unique]
+  name text [not null]
+  creation_time datetime [not null]
+  size int [note: "size in bytes", not null]
+  parent_folder int [null]
+  owner_team_id text [not null]
+}
+
+Table folder {
+  id integer [pk, unique]
+  name text [not null]
+  parent_folder int [null]
+  owner_team_id text [not null]
+}
+
+Table workflow {
+  id integer [pk, unique]
+  name text [not null]
+  description text [null]
+  input_schema text [note: "stringified json depicting the input structure", not null]
+  output_schema text [note: "stringified json depicting the output structure", not null]
+}
+
+Table workflowRun {
+  id integer [pk, unique]
+  workflow_id integer [not null]
+  status workflowRunStatus [default: "workflowRunStatus.running"]
+  last_update datetime [not null]
+  input_data text [note: "stringified json of success message or error message"]
+  output_data text [note: "stringified json of success message or error message"]
+  triggered_by text [note: "user id of the user who triggered the workflow execution", not null]
+  team_id int [not null]
+}
+
+Table workflowTeam {
+  id integer [pk, unique]
+  team_id integer [not null]
+  workflow_id integer [not null]
+}
+
+Table userTeam {
+  id integer pk unique
+  user_id text
+  team_id text
+}
+
+//----------------------------------
+
+// Enum Defintions
+enum workflowRunStatus {
+  running
+  failed
+  success
+}
+
+//----------------------------------
+
+// User and team mapping (many to many)
+Ref: team.id < userTeam.team_id
+Ref: user.id < userTeam.user_id
+
+// file and folder to folder mapping (many to one)
+Ref: folder.id < file.parent_folder
+Ref: folder.id < folder.parent_folder
+
+// file and folders to team mapping (many to one)
+Ref: file.owner_team_id > team.id
+Ref: folder.owner_team_id > team.id
+
+// workflowRun to workflow mapping (many to one)
+Ref: workflowRun.workflow_id > workflow.id
+
+// workflowRun to Team mapping (many to one)
+Ref: workflowRun.team_id > team.id
+
+// workflowRun to user mapping (many to one)
+Ref: workflowRun.triggered_by > user.id
+
+// workflow to team mapping (many to many)
+Ref: workflowTeam.team_id > team.id
+Ref: workflowTeam.workflow_id > workflow.id

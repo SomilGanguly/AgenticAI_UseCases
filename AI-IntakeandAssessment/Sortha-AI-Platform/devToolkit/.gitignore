@@ -1,0 +1,9 @@
+progressPlan.xlsx
+./venv
+*.env
+__pycache__
+*.pyc
+/.dontCommit
+/build
+/dist
+*.spec
