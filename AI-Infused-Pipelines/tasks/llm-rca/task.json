@@ -1,0 +1,173 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
+  "id": "f3d8e6f5-4d7e-4c48-9d3a-2b9ba99b6a1e",
+  "name": "pipelinetasks",
+  "friendlyName": "AI Root Cause Analysis",
+  "description": "Analyze build/release logs with Azure OpenAI to provide root cause and fixes.",
+  "helpMarkDown": "See README in extension.",
+  "category": "Utility",
+  "author": "GR Pavan Kumar",
+  "version": { "Major": 1, "Minor": 0, "Patch": 0 },
+  "minimumAgentVersion": "2.214.1",
+  "instanceNameFormat": "AI RCA: $(deploymentName)",
+  "runsOn": ["Agent", "DeploymentGroup"],
+  "inputs": [
+    {
+      "name": "azureOpenAiEndpoint",
+      "type": "string",
+      "label": "Azure OpenAI Endpoint (Base URL)",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkDown": "Base URL, e.g., https://your-resource.openai.azure.com/"
+    },
+    {
+      "name": "azureOpenAiApiVersion",
+      "type": "string",
+      "label": "Azure OpenAI API Version",
+      "defaultValue": "2024-06-01",
+      "required": true
+    },
+    {
+      "name": "deploymentName",
+      "type": "string",
+      "label": "Model Deployment Name",
+      "defaultValue": "gpt-4o-mini",
+      "required": true,
+      "helpMarkDown": "Azure OpenAI deployment name"
+    },
+    {
+      "name": "azureOpenAiApiKey",
+      "type": "string",
+      "label": "Azure OpenAI API Key",
+      "defaultValue": "",
+      "required": false,
+      "helpMarkDown": "Leave empty to use environment variable AZURE_OPENAI_API_KEY"
+    },
+    {
+      "name": "logSource",
+      "type": "pickList",
+      "label": "Log Source",
+      "defaultValue": "auto",
+      "required": false,
+      "options": { "auto": "Auto-detect", "inline": "Inline text", "file": "File path", "build": "Azure DevOps Build (REST)" }
+    },
+    {
+      "name": "inlineLogs",
+      "type": "multiLine",
+      "label": "Inline Logs",
+      "defaultValue": "",
+      "required": false,
+      "visibleRule": "logSource = inline"
+    },
+    {
+      "name": "logFilePath",
+      "type": "filePath",
+      "label": "Log File Path",
+      "defaultValue": "",
+      "required": false,
+      "visibleRule": "logSource = file"
+    },
+    {
+      "name": "devopsOrg",
+      "type": "string",
+      "label": "Azure DevOps Organization (auto from System.CollectionUri)",
+      "defaultValue": "",
+      "required": false,
+      "visibleRule": "logSource = build",
+      "helpMarkDown": "Optional override. Auto-detected from System.CollectionUri/System.TeamFoundationCollectionUri."
+    },
+    {
+      "name": "devopsProject",
+      "type": "string",
+      "label": "Azure DevOps Project (auto from System.TeamProject)",
+      "defaultValue": "",
+      "required": false,
+      "visibleRule": "logSource = build"
+    },
+    {
+      "name": "buildId",
+      "type": "string",
+      "label": "Build ID (auto from Build.BuildId)",
+      "defaultValue": "",
+      "required": false,
+      "visibleRule": "logSource = build"
+    },
+    {
+      "name": "devopsPat",
+      "type": "string",
+      "label": "Azure DevOps Personal Access Token (optional; uses System.AccessToken if empty)",
+      "defaultValue": "",
+      "required": false,
+      "visibleRule": "logSource = build"
+    },
+    {
+      "name": "maxChars",
+      "type": "string",
+      "label": "Max characters to send",
+      "defaultValue": "40000",
+      "required": true
+    },
+    {
+      "name": "maxTokens",
+      "type": "string",
+      "label": "Max output tokens",
+      "defaultValue": "1200",
+      "required": true
+    },
+    {
+      "name": "temperature",
+      "type": "string",
+      "label": "Temperature",
+      "defaultValue": "0.2",
+      "required": true
+    },
+    {
+      "name": "outputFormat",
+      "type": "pickList",
+      "label": "Output Format",
+      "defaultValue": "markdown",
+      "required": true,
+      "options": { "markdown": "Markdown", "text": "Plain text", "json": "JSON" }
+    },
+    {
+      "name": "failOnHighSeverity",
+      "type": "boolean",
+      "label": "Fail task on high severity",
+      "defaultValue": "false",
+      "required": false
+    },
+    {
+      "name": "allowUnsafeContent",
+      "type": "boolean",
+      "label": "Allow sending unredacted content (unsafe)",
+      "defaultValue": "false",
+      "required": false
+    },
+    {
+      "name": "includeFullLog",
+      "type": "boolean",
+      "label": "Include full failed task logs",
+      "defaultValue": "false",
+      "helpMarkDown": "If true (default), entire logs for failed tasks are sent. Disable only if token usage is too high."
+    },
+    {
+      "name": "errorLineRegex",
+      "type": "string",
+      "label": "Error line regex",
+      "defaultValue": "(error|fail|exception|duplicate|invalid)",
+      "helpMarkDown": "Regex (case-insensitive) to detect error lines. Used when not including full log."
+    },
+    {
+      "name": "errorContextLines",
+      "type": "string",
+      "label": "Context lines around each error",
+      "defaultValue": "3",
+      "helpMarkDown": "Number of lines of context before and after each matched error line."
+    }
+  ],
+  "execution": {
+    "Node16": {
+      "target": "dist/index.js"
+    }
+  }
+}

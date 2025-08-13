@@ -1,0 +1,32 @@
+{
+  "$schema": "vss-extension.json",
+  "manifestVersion": 1,
+  "id": "llm-rca-task",
+  "publisher": "TejashreeR",
+  "name": "LLM Root Cause Analysis Task",
+  "version": "1.1",
+  "public": false,
+  "categories": ["Azure Pipelines"],
+  "description": "Analyze Azure Pipelines logs with Azure OpenAI to produce root cause analysis and fix suggestions.",
+  "tags": ["azure openai", "rca", "ai", "pipelines"],
+  "targets": [
+    { "id": "Microsoft.VisualStudio.Services" }
+  ],
+  "icons": {
+    "default": "images/icon.svg"
+  },
+  "files": [
+    { "path": "tasks/llm-rca" },
+    { "path": "images" }
+  ],
+  "contributions": [
+    {
+      "id": "llm-rca-task-contribution",
+      "type": "ms.vss-distributed-task.task",
+      "targets": ["ms.vss-distributed-task.tasks"],
+      "properties": {
+        "name": "tasks/llm-rca"
+      }
+    }
+  ]
+}
