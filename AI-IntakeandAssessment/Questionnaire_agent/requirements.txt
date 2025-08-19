@@ -1,0 +1,10 @@
+azure-identity
+azure-storage-blob
+azure-search-documents
+azure-cosmos
+semantic-kernel
+openpyxl
+python-docx
+pypdf
+python-dotenv
+azure-ai-projects

@@ -1,0 +1,15 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsFeatureFlags": "EnableWorkerIndexing",
+    "AZURE_SEARCH_ENDPOINT": "",
+    "AZURE_SEARCH_INDEX": "",
+    "AZURE_SEARCH_ADMIN_KEY": "",
+    "AZURE_STORAGE_ACCOUNT_URL": "",
+    "AZURE_STORAGE_CONNECTION_STRING": "",
+    "AZURE_BLOB_CONTAINER": "",
+    "AZURE_SEARCH_SEMANTIC_CONFIG": ""
+  }
+}
