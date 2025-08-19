@@ -1,8 +1,4 @@
-from azure.cognitiveservices.vision.computervision import ComputerVisionClient
-from msrest.authentication import CognitiveServicesCredentials
-import base64
-from io import BytesIO
-import openai
+
 import requests
 
 def analyze_architecture_with_gpt4o(img, openai_endpoint, openai_api_key):

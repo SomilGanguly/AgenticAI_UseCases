@@ -1,0 +1,9 @@
+# Azure Functions
+# This requirements.txt is for the root of the AzureFunctions folder
+# Add any shared dependencies here
+azure-functions
+requests
+beautifulsoup4
+azure-identity
+azure-ai-vision-imageanalysis
+pillow
