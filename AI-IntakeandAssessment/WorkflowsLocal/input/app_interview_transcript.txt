@@ -1,0 +1,593 @@
+0:02
+Reply to all the questions, but yeah, for the second time we will see it so yeah.
+
+0:08
+So is that because of the time limit you're saying or is that because possibly we may have to approach few other folks to get answers to those?
+
+0:17
+No, there could be dependency on the dev OPS side.
+
+0:20
+So I might be taking so yeah, so those would be from Frank, right In that case, Yeah, yeah, yeah, yeah, yeah, OK.
+
+0:27
+And that is fine, no problem.
+
+0:28
+And even if there are some open queries, see what we usually do is we go through this information subsequently and then if there are some more queries that we may come across when we have those disk, when we have the migration planning done right that time we will still have some scope of coming back to you and ask few more queries.
+
+0:46
+Sure, sure.
+
+0:46
+OK, so your user management is nothing but Contoso, Correct.
+
+0:50
+Correct.
+
+0:50
+Yeah.
+
+0:51
+OK, so let.
+
+0:53
+So earlier actually, yeah, when we started with the user management part here, actually we wanted to migrate our application to to these login and the authentication and authorization system.
+
+1:05
+So before that it was the Contoso.
+
+1:08
+So when we when we developed the authentication and authorization, so from there we called it to the user management.
+
+1:19
+So are you saying earlier Contoso was not having user management and authentication or authorization?
+
+1:25
+Yes, yes.
+
+1:26
+Oh, OK.
+
+1:27
+But it's it had, it had only the only, you know, JWT based authentication.
+
+1:32
+So currently we have in user management like two or two factor authentication type of things we have implemented and then we have implemented the authorization.
+
+1:43
+So, yeah, OK, OK, So people still use the term Contoso only, right?
+
+1:52
+Yeah, yeah, we can say it.
+
+1:53
+Contoso?
+
+1:53
+Or the user management.
+
+1:55
+OK, So that's good.
+
+1:58
+OK, so give me two minutes.
+
+2:01
+Let me see if I have some specific OK.
+
+2:24
+OK, So what kind of, I mean other than user management and you know, authentication and authorization, does this application have any other use cases or it is purely for authentication and authorization?
+
+2:41
+Unsure actually we have another things here in user management, like we actually manages some device information in Waterman.
+
+2:54
+So from here we fetch the like access tag or the site or the some customers information from the Contoso as well.
+
+3:05
+OK, Yeah, OK.
+
+3:08
+And all of these, So what exact what happens, we actually sync the application, we sync the data from energy from metrics and then we store that data in our in our database and from their front end queries with the user management's information means users information like excess tag or the sites information.
+
+3:29
+So these things we provide to the front end, OK.
+
+3:36
+And when you say front end, this could be various applications of front end, right?
+
+3:40
+Yeah, yeah.
+
+3:41
+OK, OK.
+
+3:43
+So is, I mean, at a very high level if you have to talk about what kind of stack this is and how this is deployed.
+
+3:55
+So you have mentioned here, it is Python, DRF, Django, it is in PG.
+
+4:00
+What is DRF?
+
+4:01
+Sorry, it's a Django REST framework.
+
+4:06
+OK, this is yeah, Shango list framework.
+
+4:13
+OK, so how many, how many tiers?
+
+4:19
+OK, so you are mentioning this is 3 tier.
+
+4:22
+So can you, can you slightly go into detail how these tiers are?
+
+4:27
+So when you say this is 3 tier, so you may have something called as a web tier then then the web tier and the DB tier, correct.
+
+4:35
+So, yeah.
+
+4:36
+So can you slightly explain how this is?
+
+4:40
+We have actually nginx, I think Nginx.
+
+4:44
+So Nginx in in when I was talking to Aditya this morning.
+
+4:49
+So he said nginx is a is a is a layer that faces the web layer.
+
+4:53
+And his web layer was having Django.
+
+4:57
+So is it a similar case in your in your this one?
+
+5:01
+So if you see it, he said that it load balance is in front of the web tier.
+
+5:06
+So is it is it the similar case for yes, yes, yeah, yeah, yeah.
+
+5:11
+OK, So it's the same case here also.
+
+5:14
+So nginx is used as a load balancer in front of your actual Contoso ports, right?
+
+5:22
+OK.
+
+5:23
+And OK, this is the case for all the environment, right?
+
+5:28
+QA, prod, yes, yes, yes.
+
+5:31
+And, and all the regions, yeah, we have only one part in that dev environment running, not three.
+
+5:37
+And three parts in production.
+
+5:40
+We are running three parts currently.
+
+5:44
+OK, three parts in production.
+
+5:47
+OK, fair enough.
+
+5:48
+And let me.
+
+5:50
+OK.
+
+5:50
+And this one part, yeah, one part is regarding the web interface.
+
+5:55
+One part for the Postgres, one part for the Redis, one part for the web interface.
+
+6:04
+Suppose this also runs inside a pod.
+
+6:07
+Yeah.
+
+6:07
+So this is a stateful set then maybe correct?
+
+6:09
+Yeah, yes, OK, fine.
+
+6:13
+So what do you have on the web layer, Web layer, application layer?
+
+6:26
+Just a second.
+
+6:27
+Let me let me do it this way.
+
+6:32
+I think So what is the namespace that you have for Watman, Watman, Watman?
+
+6:38
+Is there a separate namespace for No, no, only Watman.
+
+6:42
+OK, so there is there is one.
+
+6:43
+OK, OK, so there is Watman, Watman QA, right.
+
+6:53
+These are the namespaces that we have.
+
+6:59
+OK.
+
+7:00
+So fine.
+
+7:01
+So these are the only ports that I see which are running 1 is nginx which you already considered it's load balance is the the the Contoso course.
+
+7:10
+And this Contoso is your actual web line, right?
+
+7:13
+Yes, yes, yes.
+
+7:15
+OK.
+
+7:15
+So is it fair to write that runs as Contoso ports within Contoso namespace, Right.
+
+7:27
+OK.
+
+7:27
+And these are three replicas on production.
+
+7:30
+Yeah, OK.
+
+7:31
+And this image that you have.
+
+7:35
+OK, So this this same image runs on all the three replicas.
+
+7:38
+That's fine.
+
+7:39
+Now what is this other two things, analytics read, write and what Monaro notebook?
+
+7:45
+Yes.
+
+7:46
+So these are the notebooks that we run for the query, query to the database.
+
+7:56
+Do you understand the notebook?
+
+8:00
+Sorry, do you understand that notebook?
+
+8:03
+Yeah.
+
+8:04
+So you are talking about you put in notebooks, right?
+
+8:06
+Yeah, yeah.
+
+8:07
+OK, I'm in.
+
+8:08
+I'm not worked in too much on that, but at a very high level, I know that.
+
+8:12
+So basically, but, but is there a reason?
+
+8:15
+Because I see these only in this namespace, but I do not see it in this namespace, the notebook.
+
+8:21
+So is there a specific reason?
+
+8:22
+As such, I cannot comment on it why these are the two namespaces it's having?
+
+8:31
+Because when I joined it's running earlier than my joining.
+
+8:34
+So I can ask through Frank.
+
+8:37
+No, I can ask that query, but I mean I I think the query is not that.
+
+8:41
+Why 2 namespaces?
+
+8:42
+11 namespaces for for production and one for QA.
+
+8:45
+That is what I I know for sure based on other discussions.
+
+8:49
+So Contoso could be a could be a production namespace, Contoso QA could be a dev or QA namespace.
+
+8:55
+Correct?
+
+8:56
+But what I'm trying to understand is I can see that there are 4 ports running, 11 for nginx, second for Contoso, 3rd for Contoso analytics RW and 4th for Contoso RO notebook.
+
+9:12
+Whereas here it is only three namespaces.
+
+9:14
+So this notebook, is it not deployed on all the names, all the environments?
+
+9:19
+This is deployed to all environment.
+
+9:21
+OK, So I need to ask then Frank or it's up in it's on to the prod and it's on to the EU as well, EU environment.
+
+10:04
+OK, I'll ask this to Frank.
+
+10:14
+OK, so that that's something I'll ask Frank.
+
+10:18
+Now in this app layer, what does what?
+
+10:23
+What runs?
+
+10:23
+Is it this What when RO notebook analytics RW?
+
+10:27
+Is this the app layer?
+
+10:31
+Because you mentioned this is a three tier application, correct?
+
+10:34
+Just just a second.
+
+10:43
+There is I think no other application layer this actually I wrote 3 tiers in terms of nginx.
+
+10:53
+Second one is the R application, third one is the R database.
+
+11:00
+OK, OK.
+
+11:01
+If that's the case, that's OK.
+
+11:02
+That's not a problem because I mean, in in fact, that was the the the analogy even you were having earlier.
+
+11:09
+But the the other developers from your team division that it's started, I mean, they have a nginx layer in front of a layer.
+
+11:16
+So that's the reason I ask.
+
+11:18
+OK, so basically your Nginx is your web layer, your app layer is what 1 and your DB layer is this one.
+
+11:23
+So where do we put these these two things?
+
+11:26
+Also these also could be part of app layer only kind of these are Yeah, these are app layer.
+
+11:35
+OK, OK, fine.
+
+11:52
+OK, now is this the K?
+
+11:55
+OK, let me do one thing.
+
+11:58
+Let me also check the state full sets.
+
+12:01
+So in state full sets also you may have this as a separate namespace, Right?
+
+12:07
+OK.
+
+12:11
+Hello.
+
+12:12
+Yeah.
+
+12:13
+OK.
+
+12:13
+I thought I I lost you.
+
+12:18
+OK.
+
+12:23
+So you are using Redis and you are using Postgres both is this?
+
+12:27
+Yes, Yeah, yes.
+
+12:28
+OK.
+
+12:29
+So how are you segregating the functionality?
+
+12:31
+So Redis, both of these are are deployed as a pod is what I see, right.
+
+12:35
+Yeah.
+
+12:36
+So these are not a standalone separate installations or separate services as such, but you are running them within ports?
+
+12:43
+Yes.
+
+12:44
+OK So what is the the the main purpose of these post this and and the purpose of Redis.
+
+12:54
+We we are caching some information of metrics into the cache and we are also caching some information of user in terms of creating OTP or the OTP, how many OTP are being generated or last OTP when created so that we can you know authenticate properly now because we have some boundation on the generation on OTP generation, OK.
+
+13:22
+When you see OTP generation for them, if you are saying right, yeah, yeah, yes, OK.
+
+13:27
+So that is from Postgres or that is from Redis, that is for Redis.
+
+13:35
+So you are caching the OTP, Yes.
+
+13:38
+Oh caching this last OTP generation time when our user created our OTP the last time.
+
+13:45
+OK, OK, yeah, because we do expire the OTP's if you try to attempt after one hour or three hours type of things.
+
+13:54
+OK, OK and OK.
+
+13:58
+And the Postgres is for what Postgres is for the like if you are creating some users.
+
+14:05
+So that user information I we will put in inside the Postgres OK.
+
+14:12
+So all user, whichever user you create, you will put inside the post press OK just a second, a call is coming.
+
+17:23
+Joe Yeah, actually I have another call.
+
+17:28
+So can we meet after one hour if you have time?
+
+17:33
+So today we can finish it.
+
+17:37
+OK.
+
+17:38
+Actually 22, Yeah.
+
+17:39
+Two meeting clashes.
+
+17:41
+So I couldn't see the scheduled time.
+
+17:44
+Yeah.
+
+17:46
+Oh, OK.
+
+17:46
+This was the schedule given by by Yes, yes, yes.
+
+17:50
+So actually I, I told Bill that two meetings are clashing, but he told me to reschedule another meeting.
+
+17:58
+But OK, OK, no problem.
+
+18:02
+I think Bill is joining.
+
+18:04
+I'm I'm OK, I think I will have a discussion.
+
+18:08
+Hi Bill, I will have another discussion at 5:30.
+
+18:15
+So if there is anything, what time you are saying 430 after 4:30, we can meet SO4430.
+
+18:24
+OK.
+
+18:25
+So shall I schedule 4:30 to 5:30?
+
+18:28
+Yeah.
+
+18:29
+Yeah, that would be OK.
+
+18:31
+We'll try to cover as much as possible.
+
+18:34
+Otherwise we can we can share.
+
+18:35
+OK.
+
+18:36
+OK.
+
+18:37
+Thank you.
+
+18:37
+Thank you.
+
+18:37
+OK, no problem.
+
+18:38
+No problem.
+
+18:38
+OK, fine.
+
+18:40
+Thank you.
+
+18:40
+Bye.
