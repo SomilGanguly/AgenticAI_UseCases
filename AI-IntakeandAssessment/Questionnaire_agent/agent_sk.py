@@ -2,6 +2,7 @@ import os
 import asyncio
 import re
 import json
+import openpyxl
 from typing import Optional, List
 from semantic_kernel import Kernel
 from semantic_kernel.agents import AzureAIAgent, AzureAIAgentSettings, AzureAIAgentThread
@@ -10,11 +11,9 @@ from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCreden
 from azure.identity import AzureCliCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import ConnectionType
-
-from plugins_refactored import QuestionnaireProcessorPlugin, BlobPlugin, ReviewPlugin
+from plugins_sk import QuestionnaireProcessorPlugin, BlobPlugin, ReviewPlugin
 from tools.excel import _parse_sheet_names
 from tools.telemetry import TelemetryLogger
-
 # New imports for agent tools
 from azure.ai.agents.models import (
     AzureAISearchTool,
@@ -36,6 +35,14 @@ class QuestionnaireAgentSK:
         self.kernel: Optional[Kernel] = None
         self.agent: Optional[AzureAIAgent] = None
         self.client = None
+        self._excel_path: Optional[str] = None  # Add this to track the Excel file path
+        
+        # Migration types mapping
+        self.migration_types = {
+            "1": {"name": "Modernization", "template": "ModernizationQuestionnaire.xlsx"},
+            "2": {"name": "On-Prem to Azure Migration", "template": "ApplicationQuestionnaireV1.1.xlsx"},
+            "3": {"name": "Cross Cloud Migration", "template": "CrossCloudQuestionnaire.xlsx"}
+        }
         
         # Validate environment
         self._validate_environment()
@@ -49,6 +56,13 @@ class QuestionnaireAgentSK:
         self.search_connection_id = os.getenv("AZURE_SEARCH_CONNECTION_ID")
         # Optional: name fallback (not used unless you add resolver)
         self.search_connection = os.getenv("AZURE_SEARCH_CONNECTION_NAME")
+        
+        # Container configuration - now two separate containers
+        self.templates_container = os.getenv("TEMPLATES_CONTAINER", "questionnaire-templates")
+        # self.documents_container = os.getenv("DOCUMENTS_CONTAINER", f"{self.app_id}")
+        documents_container_env = os.getenv("DOCUMENTS_CONTAINER", "").strip()
+        self.documents_container = self.app_id
+        
         # Function App config
         self.func_base_url = os.getenv("FUNC_BASE_URL")  # e.g., https://<app>.azurewebsites.net
         self.func_api_key = os.getenv("FUNC_API_KEY")
@@ -74,6 +88,7 @@ class QuestionnaireAgentSK:
             missing.append("AZURE_SEARCH_CONNECTION_ID or CONNECTED_AGENT_B_ID")
         if missing:
             raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
+
     
     def _vprint(self, msg: str):
         """Verbose print for debugging"""
@@ -203,17 +218,47 @@ class QuestionnaireAgentSK:
         if self.func_base_url and self.func_api_key:
             try:
                 base = self.func_base_url.rstrip('/')
-                # Full endpoint with route and API key embedded in server URL
-                full_endpoint = f"{base}/api/index?code={self.func_api_key}"
-                openapi_doc = {
-                    "openapi": "3.0.1",
-                    "info": {"title": "Indexer Function", "version": "1.0.0"},
-                    "servers": [{"url": full_endpoint}],
+
+                # Build OpenAPI spec using server variables and explicit 'code' query parameter
+                FUNCTION_URL = f"{base}"
+                FUNCTION_KEY = self.func_api_key
+
+                openapi_spec = {
+                    "openapi": "3.0.0",
+                    "info": {
+                        "title": "Indexer API",
+                        "version": "1.0.0",
+                        "description": "Azure Function for indexing container data"
+                    },
+                    "servers": [
+                        {
+                            # embed the function key directly in the server URL so requests include the code query param
+                            "url": f"{FUNCTION_URL}",
+                            "variables": {
+                               "functionKey": {
+                                      "default": FUNCTION_KEY,
+                                      "description": "Azure Function key for authentication"
+                                       }
+                                    }
+                        }
+                    ],
                     "paths": {
-                        "/": {
+                        "/api/index": {
                             "post": {
                                 "operationId": "indexContainer",
                                 "summary": "Index a container for a given appId",
+                                "parameters": [
+                                        {
+                                          "name": "code",
+                                          "in": "query",
+                                          "required": True,
+                                          "schema": {
+                                                "type": "string",
+                                                "default": FUNCTION_KEY
+                                          },
+                                          "description": "Function key for authentication"
+                                        }
+                                ],                    
                                 "requestBody": {
                                     "required": True,
                                     "content": {
@@ -223,33 +268,36 @@ class QuestionnaireAgentSK:
                                                 "properties": {
                                                     "appId": {"type": "string"},
                                                     "container": {"type": "string"},
-                                                    "blobName": {"type": ["string", "null"]},
+                                                    "blobName": {"type": ["string", "null"]}
                                                 },
-                                                "required": ["appId", "container"],
+                                                "required": ["appId", "container"]
                                             }
                                         }
                                     }
                                 },
                                 "responses": {
-                                    "200": {
-                                        "description": "OK",
-                                        "content": {"application/json": {"schema": {"type": "object"}}}
-                                    }
+                                    "200": {"description": "Successfully indexed"},
+                                    "401": {"description": "Unauthorized - Invalid or missing API key"},
+                                    "500": {"description": "Internal Server Error"}
                                 }
                             }
                         }
                     }
                 }
+
                 openapi_tool = OpenApiTool(
                     name="IndexerAPI",
-                    description="HTTP trigger that indexes a container for a given appId.",
-                    spec=openapi_doc,
-                    auth=OpenApiAnonymousAuthDetails(),
+                    description="Azure Function that indexes container documents for the assessment.",
+                    spec=openapi_spec,
+                    auth=OpenApiAnonymousAuthDetails()
                 )
                 tool_objects.append(openapi_tool)
-                self._vprint("Added Function OpenAPI tool (inline spec)")
+
+                # Log for debugging
+                self._vprint(f"Added Function OpenAPI tool with server {FUNCTION_URL}/api/index")
             except Exception as e:
-                raise RuntimeError(f"Failed to configure Function OpenAPI tool: {e}")
+                self._vprint(f"Warning: Failed to configure Function OpenAPI tool: {e}")
+                # Don't raise, just continue without the indexer tool
         else:
             self._vprint("Function tool not configured (set FUNC_BASE_URL and FUNC_API_KEY to enable)")
         
@@ -290,37 +338,18 @@ class QuestionnaireAgentSK:
         return self.agent
     
     def _get_agent_instructions(self) -> str:
-        """Get agent instructions with generic examples"""
+        """Get agent instructions with migration type handling"""
         connected_hint = (
             f"- Connected agent '{self.connected_agent_b_name}': Delegate retrieval for each question. "
             "Send only the minimal question text and filter. Expect compact JSON. Use this instead of direct search when available.\n"
             if self.connected_agent_b_id else ""
         )
         
-        # Generic examples that guide without exposing real data
-        generic_examples = """
-EXAMPLE Q&A PATTERNS (generic):
-1. Q: "What is the application name/title?" 
-   → Search for: application name, app name, system name, product name
-   
-2. Q: "What compute/hosting services are used?"
-   → Search for: compute, hosting, servers, infrastructure, Azure services
-   
-3. Q: "What database technology is used?"
-   → Search for: database, DB, SQL, storage, data tier
-   
-4. Q: "What are the disaster recovery requirements?"
-   → Search for: disaster recovery, DR, RPO, RTO, backup, failover
-   
-5. Q: "What security measures are in place?"
-   → Search for: security, authentication, authorization, encryption, compliance
-
-SEARCH STRATEGY:
-- Extract key terms from the question
-- Search for both exact matches and related terms
-- If a question asks about "X", also search for common variations of X
-- Return only what is found in documents, never generate answers
-"""
+        # Build migration type mapping for instructions
+        migration_options = "\n".join([
+            f"  {key}. {value['name']} -> Template: {value['template']}"
+            for key, value in self.migration_types.items()
+        ])
         
         return f"""
 You are a Semantic Kernel-powered Questionnaire Assessment Agent.
@@ -331,42 +360,60 @@ CRITICAL RULES:
 3. If no answer is found in search results, leave the field blank
 4. Always use the search tool or connected agent for EVERY question
 
-{generic_examples}
+WORKFLOW:
+
+PHASE 1: Migration Type Selection
+IMPORTANT: Start by asking the user to select a migration type. Present these options:
+  1. Modernization
+  2. On-Prem to Azure Migraiton
+  3. Cross Cloud migration
+
+Wait for user's selection (1-3). Based on their choice, use the corresponding template:
+{migration_options}
+
+PHASE 2: Index Content
+- After user selects migration type, immediately call indexContainer with appId='{self.app_id}' and container='{self.documents_container}'
+- Ensure documents are indexed (uploaded >= 1)
+- Success message: "The documents are indexed and ready for processing."
+
+PHASE 3: Download Template
+- Based on the migration type selected, download the appropriate template file from container '{self.templates_container}'
+- Use BlobOperations.download_blob with the correct template filename
+- Initialize the questionnaire with the downloaded template using QuestionnaireProcessor.initialize_questionnaire
+
+PHASE 4: Search and Extract
+- For EACH question: search the index for the answer
+- Use relevant keywords from the question
+- Try multiple search queries if needed
+- Only use information found in search results
+
+PHASE 5: Auto-save with Answers
+- Persist the answers to Excel using QuestionnaireProcessor.persist_answers
+- Upload to '{self.documents_container}' with filename format: [originalname]_filled_{self.app_id}.xlsx
+- Inform user: "The answers are retrieved and ready to be evaluated. Please go and check the filled questionnaire which is uploaded in the storage account container and once done please let me know."
+
+PHASE 6: User Review
+- Wait for user to confirm they've reviewed/edited the questionnaire
+- When user confirms completion, download the edited file
+
+PHASE 7: Update Confidence
+- Change all "Low" confidence values to "High"
+- Change "no-results" provenance to "User-filled"
+- Upload the final version
+- Confirm job completion
 
 TOOLS:
 - Azure AI Search (knowledge): Search index '{self.search_index}' with filter: appId eq '{self.app_id}'
 {connected_hint}- OpenAPI Function (indexContainer): Index container for the application
 - Function tools (Kernel):
-  - BlobOperations: download/upload/list blobs
-  - QuestionnaireProcessor: initialize_questionnaire, persist_answers, get_excel_path
-  - ReviewManager: add_proposals, render_markdown, get_updates_json, clear
-
-WORKFLOW:
-PHASE 0: Setup
-- Ask for container name and workbook blob name
-- List sheets and ask user which to use
-
-PHASE 1: Index content
-- Call indexContainer with appId and container
-- Ensure documents are indexed (uploaded >= 1)
-
-PHASE 2: Initialize
-- Download workbook and initialize with chosen sheets
-
-PHASE 3: Search and Extract
-- For EACH question: search the index for the answer
-- Use relevant keywords from the question
-- Try multiple search queries if needed
-- Only use information found in search results
-- Mark as "Not found in documents" if no answer exists
-
-PHASE 4: Review
-- Show results table for user review
-
-PHASE 5: Save
-- Persist approved answers and upload
+  - BlobOperations: download_blob, upload_file, list_blobs
+  - QuestionnaireProcessor: initialize_questionnaire, persist_answers, get_excel_path, get_loaded_questions
+  - ReviewManager: add_proposals, get_updates_json, clear
 
 IMPORTANT:
+- Templates are in container: {self.templates_container}
+- User documents are in container: {self.documents_container}
+- Start by asking for migration type selection
 - Every answer must come from search results only
 - Do not use your training knowledge to answer questions
 - If unsure, leave blank rather than guess
@@ -391,21 +438,20 @@ IMPORTANT:
         finally:
             await self._cleanup(thread)
     
-    async def delegate_search_to_agent_b(self, question: str, row_index: int, sheet_name: str) -> dict:
-        """Delegate a single question search to Agent B with minimal context"""
+    async def delegate_search_to_agent_b(self, question: str, row_index: int, sheet_name: str, col_index: int = 0) -> dict:
+        """Delegate a single question search to Agent B with robust polling and cleanup."""
         if not self.connected_agent_b_id:
             raise RuntimeError("Connected Agent B not configured")
         
         if not self.project_client:
             raise RuntimeError("Project client not initialized")
         
-        # Create a minimal thread just for this question
         thread = None
+        run = None
         try:
-            # Create a thread
+            # 1. Create a dedicated thread for this question
             thread = await self.project_client.agents.threads.create()
             
-            # Very explicit prompt to prevent hallucination
             search_prompt = f"""IMPORTANT: You MUST use Azure AI Search to find the answer. DO NOT generate or make up answers.
 
 Use the {self.connected_agent_b_name} tool to search for:
@@ -413,134 +459,133 @@ Question: {question}
 Filter: appId eq '{self.app_id}'
 
 INSTRUCTIONS FOR SEARCH:
-1. Search the Azure AI Search index for relevant documents
-2. Extract the answer ONLY from search results
-3. If no results found, return empty Answer
-4. DO NOT generate answers from your knowledge
+1. Search the Azure AI Search index for relevant documents.
+2. Extract the answer ONLY from search results.
+3. If no results found, return empty Answer.
+4. DO NOT generate answers from your knowledge.
 5. Return ONLY this JSON format:
 {{"Answer":"<text from search results only>","Confidence":"<High if exact match, Medium if partial, Low if uncertain>","Source":"<document name from search>"}}
 
 If search returns no results, return:
 {{"Answer":"","Confidence":"Low","Source":"no-results"}}"""
             
-            # Add message to thread
+            # 2. Add the message to the thread
             await self.project_client.agents.messages.create(
                 thread_id=thread.id,
                 role="user",
                 content=search_prompt
             )
             
-            # Create and process run with strict instructions
-            run = await self.project_client.agents.runs.create_and_process(
+            # 3. Create the run (but don't wait for it yet)
+            run = await self.project_client.agents.runs.create(
                 thread_id=thread.id,
-                agent_id=self.agent.id,
-                instructions=f"""You are a search relay agent. Your ONLY job is to:
-1. Use the {self.connected_agent_b_name} tool to search Azure AI Search
-2. Return results EXACTLY as found in the search index
-3. NEVER generate, infer, or make up answers
-4. If search returns nothing, say so clearly
-5. Return JSON format only
-
-DO NOT use your training data to answer questions. ONLY use search results.""",
-                temperature=0.0,  # Set to 0 for deterministic behavior
-                max_completion_tokens=500  # Limit response size
+                agent_id=self.connected_agent_b_id,
+                instructions="You are a search relay agent. Your ONLY job is to use the search tool and return the result in the requested JSON format. NEVER make up answers.",
+                temperature=0.0,
+                max_completion_tokens=500
             )
-            
-            # Check run status
-            if run.status == "failed":
-                self._vprint(f"Run failed: {run.last_error}")
-                return {
-                    "RowIndex": row_index,
-                    "SheetName": sheet_name,
-                    "Question": question,
-                    "Answer": "",
-                    "Confidence": "Low",
-                    "Provenance": "run-failed"
-                }
-            
-            # Extract result from messages
-            if run.status == "completed":
-                messages = self.project_client.agents.messages.list(
-                    thread_id=thread.id,
-                    order="desc"
-                )
+
+            # 4. Poll for completion with a timeout
+            poll_timeout = int(os.getenv("AGENT_B_RUN_TIMEOUT", "90"))  # 90-second timeout for Agent B
+            start_time = asyncio.get_event_loop().time()
+
+            while True:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed > poll_timeout:
+                    self._vprint(f"Run {run.id} timed out after {elapsed:.2f}s. Cancelling...")
+                    raise asyncio.TimeoutError(f"Run {run.id} timed out.")
+
+                run = await self.project_client.agents.runs.get(thread_id=thread.id, run_id=run.id)
+
+                if run.status in ["completed", "succeeded"]:
+                    break
+                if run.status in ["failed", "cancelled", "canceled", "expired"]:
+                    self._vprint(f"Run {run.id} terminated with status: {run.status}. Error: {run.last_error}")
+                    return {
+                        "RowIndex": row_index, 
+                        "ColumnIndex": col_index,
+                        "SheetName": sheet_name, 
+                        "Question": question, 
+                        "Answer": "", 
+                        "Confidence": "Low", 
+                        "Provenance": f"run-{run.status}"
+                    }
                 
-                async for message in messages:
-                    if message.role == "assistant":
-                        content_text = ""
-                        if hasattr(message, 'content'):
-                            if isinstance(message.content, str):
-                                content_text = message.content
-                            elif isinstance(message.content, list):
-                                for content in message.content:
-                                    if hasattr(content, 'text'):
-                                        if hasattr(content.text, 'value'):
-                                            content_text = content.text.value
-                                        else:
-                                            content_text = str(content.text)
-                                        break
-                        
-                        if content_text:
-                            try:
-                                # Extract JSON from response
-                                import re
-                                json_match = re.search(r'\{[^}]+\}', content_text)
-                                if json_match:
-                                    result = json.loads(json_match.group())
-                                else:
-                                    result = json.loads(content_text)
-                                
-                                # Validate that answer isn't hallucinated
+                await asyncio.sleep(2) # Wait 2 seconds before polling again
+
+            # 5. Extract result from messages
+            messages = self.project_client.agents.messages.list(thread_id=thread.id, order="desc")
+            async for message in messages:
+                if message.role == "assistant":
+                    content_text = ""
+                    if message.content and isinstance(message.content, list) and hasattr(message.content[0], 'text'):
+                        content_text = message.content[0].text.value
+                    
+                    if content_text:
+                        try:
+                            json_match = re.search(r'\{.*\}', content_text, re.DOTALL)
+                            if json_match:
+                                result = json.loads(json_match.group())
                                 answer = result.get("Answer", "")
                                 source = result.get("Source", "")
-                                
-                                # If source is missing or generic, likely hallucinated
                                 if answer and source in ["", "no-results", "unknown", None]:
-                                    self._vprint(f"Warning: Possible hallucination detected for question {row_index}")
-                                    answer = ""  # Clear potentially hallucinated answer
-                                
+                                    answer = "" # Clear potentially hallucinated answer
                                 return {
-                                    "RowIndex": row_index,
-                                    "SheetName": sheet_name,
-                                    "Question": question,
-                                    "Answer": answer,
-                                    "Confidence": result.get("Confidence", "Low"),
+                                    "RowIndex": row_index, 
+                                    "ColumnIndex": col_index,
+                                    "SheetName": sheet_name, 
+                                    "Question": question, 
+                                    "Answer": answer, 
+                                    "Confidence": result.get("Confidence", "Low"), 
                                     "Provenance": source or "no-source"
                                 }
-                            except Exception as e:
-                                self._vprint(f"Failed to parse JSON: {e}")
-                        break
+                        except Exception as e:
+                            self._vprint(f"Failed to parse JSON from Agent B response: {e}")
+                    break # Only process the latest assistant message
             
-            # Default if failed
             return {
-                "RowIndex": row_index,
-                "SheetName": sheet_name,
-                "Question": question,
-                "Answer": "",
-                "Confidence": "Low",
-                "Provenance": "search-failed"
+                "RowIndex": row_index, 
+                "ColumnIndex": col_index,
+                "SheetName": sheet_name, 
+                "Question": question, 
+                "Answer": "", 
+                "Confidence": "Low", 
+                "Provenance": "no-response"
             }
                 
         except Exception as e:
             self._vprint(f"Error in delegate_search_to_agent_b: {e}")
             return {
-                "RowIndex": row_index,
-                "SheetName": sheet_name,
-                "Question": question,
-                "Answer": "",
-                "Confidence": "Low",
+                "RowIndex": row_index, 
+                "ColumnIndex": col_index,
+                "SheetName": sheet_name, 
+                "Question": question, 
+                "Answer": "", 
+                "Confidence": "Low", 
                 "Provenance": f"error: {str(e)[:50]}"
             }
         finally:
+            # 6. GUARANTEED CLEANUP
+            if run and thread:
+                try:
+                    # Attempt to cancel the run if it's still active
+                    current_run = await self.project_client.agents.runs.get(thread_id=thread.id, run_id=run.id)
+                    if current_run.status not in ["completed", "succeeded", "failed", "cancelled", "canceled"]:
+                        self._vprint(f"Cancelling lingering run {run.id} in finally block.")
+                        await self.project_client.agents.runs.cancel(thread_id=thread.id, run_id=run.id)
+                        await asyncio.sleep(1) # Give a moment for cancellation to register
+                except Exception as cancel_err:
+                    self._vprint(f"Could not cancel run {run.id} during cleanup: {cancel_err}")
+            
             if thread:
                 try:
+                    self._vprint(f"Deleting thread {thread.id}")
                     await self.project_client.agents.threads.delete(thread.id)
-                except:
-                    pass
+                except Exception as delete_err:
+                    self._vprint(f"Failed to delete thread {thread.id}: {delete_err}")
 
     async def batch_search_questions(self, questions: List[dict], batch_size: int = 5) -> List[dict]:
         """Process questions in batches through Agent B"""
-        print(f"\n=== Starting Batch Search for {len(questions)} questions ===")
         proposals = []
         
         # Process in batches with concurrency control
@@ -549,15 +594,19 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
         async def search_with_limit(q):
             async with semaphore:
                 try:
-                    return await self.delegate_search_to_agent_b(
-                        q.get("Question", ""),
-                        q.get("RowIndex", 0),
-                        q.get("SheetName", "Sheet1")
+                    # Pass all required parameters including ColumnIndex
+                    result = await self.delegate_search_to_agent_b(
+                        question=q.get("Question", ""),
+                        row_index=q.get("RowIndex", 0),
+                        sheet_name=q.get("SheetName", "Sheet1"),
+                        col_index=q.get("ColumnIndex", 0)  # Pass the column index
                     )
+                    return result
                 except Exception as e:
                     self._vprint(f"Search failed for question: {e}")
                     return {
                         "RowIndex": q.get("RowIndex", 0),
+                        "ColumnIndex": q.get("ColumnIndex", 0),
                         "SheetName": q.get("SheetName", "Sheet1"),
                         "Question": q.get("Question", ""),
                         "Answer": "",
@@ -565,12 +614,13 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
                         "Provenance": "error"
                     }
         
-        # Process in batches to show progress
+        # Collect ALL proposals first, then add them at once
+        all_proposals = []
+        
+        # Process in batches without verbose output
         for i in range(0, len(questions), batch_size):
             batch_end = min(i + batch_size, len(questions))
             batch = questions[i:batch_end]
-            
-            print(f"  Processing questions {i+1} to {batch_end}...")
             
             # Create tasks for this batch
             tasks = [search_with_limit(q) for q in batch]
@@ -578,42 +628,195 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
             # Execute batch
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            # Process results
-            batch_proposals = []
+            # Collect results
             for result in results:
                 if isinstance(result, dict):
-                    batch_proposals.append(result)
+                    all_proposals.append(result)
                     proposals.append(result)
-            
-            # Add batch to review manager
-            if batch_proposals:
-                proposals_json = json.dumps({"proposals": batch_proposals})
-                await self.kernel.invoke(
-                    function_name="add_proposals",
-                    plugin_name="ReviewManager",
-                    proposals_json=proposals_json
-                )
             
             # Small delay between batches
             await asyncio.sleep(2)
-            
-            print(f"    ✓ Completed {len(proposals)}/{len(questions)} questions")
         
-        print(f"\n=== Search Complete: {len(proposals)} answers found ===\n")
+        # Add ALL proposals at once to the review manager
+        if all_proposals:
+            proposals_json = json.dumps({"proposals": all_proposals})
+            await self.kernel.invoke(
+                function_name="add_proposals",
+                plugin_name="ReviewManager",
+                proposals_json=proposals_json
+            )
+            self._vprint(f"Added {len(all_proposals)} proposals to ReviewManager")
+        
         return proposals
     
-    async def chat_repl_with_kernel(self, initial_prompt: str) -> None:
-        """Interactive REPL chat with automatic batch search when questions are loaded"""
+    async def _load_question_ordinals(self):
+        """Load and cache sheet -> [{Number, RowIndex, Question}] and reverse map row->Number"""
+        try:
+            res = await self.kernel.invoke(
+                function_name="get_question_map",
+                plugin_name="QuestionnaireProcessor"
+            )
+            text = res.value if hasattr(res, "value") else str(res)
+            self._question_map = json.loads(text) if text else {}
+            # build reverse map for display
+            self._row_to_number = {}
+            for sheet, items in (self._question_map or {}).items():
+                self._row_to_number.setdefault(sheet, {})
+                for it in items:
+                    self._row_to_number[sheet][int(it["RowIndex"])] = int(it["Number"])
+        except Exception:
+            self._question_map = {}
+            self._row_to_number = {}
+
+    async def _resolve_row_by_qno(self, sheet: str, qno: int) -> Optional[dict]:
+        """Resolve question number to row using plugin resolver"""
+        res = await self.kernel.invoke(
+            function_name="resolve_question_number",
+            plugin_name="QuestionnaireProcessor",
+            sheet=sheet,
+            number=int(qno)
+        )
+        text = res.value if hasattr(res, "value") else str(res)
+        try:
+            j = json.loads(text) if text else {}
+            return j if isinstance(j, dict) and j.get("RowIndex") else None
+        except Exception:
+            return None
+
+    async def _list_unanswered(self) -> List[dict]:
+        res = await self.kernel.invoke(function_name="get_unanswered", plugin_name="ReviewManager")
+        text = res.value if hasattr(res, "value") else str(res)
+        try:
+            return json.loads(text) if text else []
+        except Exception:
+            return []
+
+    async def _unanswered_count(self) -> int:
+        res = await self.kernel.invoke(function_name="get_unanswered_count", plugin_name="ReviewManager")
+        val = res.value if hasattr(res, "value") else str(res)
+        try:
+            return int(val)
+        except Exception:
+            return 0
+
+    async def _set_answer_user(self, sheet: str, row_index: int, answer: str):
+        await self.kernel.invoke(
+            function_name="set_answer",
+            plugin_name="ReviewManager",
+            sheet=sheet,
+            row_index=int(row_index),
+            answer=answer,
+            confidence="High",
+            provenance="User_filled",
+        )
+
+    async def _fill_missing_interactively(self):
+        """Prompt user to fill unanswered items one by one"""
+        await self._load_question_ordinals()
+        while True:
+            unanswered = await self._list_unanswered()
+            if not unanswered:
+                print("All questions are answered.")
+                return
+            print(f"\nYou have {len(unanswered)} unanswered question(s). Type 'skip' to leave blank.")
+            # show a small preview list
+            preview = unanswered[:5]
+            for u in preview:
+                sheet = u["SheetName"]
+                row = int(u["RowIndex"])
+                qno = self._row_to_number.get(sheet, {}).get(row, "?")
+                print(f"- {sheet} Q#{qno} (Row {row}): {u.get('Question','')[:80]}")
+            # pick first
+            target = unanswered[0]
+            sheet = target["SheetName"]
+            row = int(target["RowIndex"])
+            qno = self._row_to_number.get(sheet, {}).get(row, "?")
+            prompt = f"\nProvide answer for {sheet} Q#{qno} (Row {row}): "
+            try:
+                ans = await asyncio.get_event_loop().run_in_executor(None, lambda: input(prompt).strip())
+            except Exception:
+                return
+            if ans.lower() == "skip":
+                # leave unanswered; move on to next
+                # optional: set explicit "User_filled" empty? we leave it blank
+                # rotate item by moving to end (simple approach: just continue)
+                continue
+            await self._set_answer_user(sheet, row, ans)
+
+    async def update_confidence_scores(self, file_path: str) -> str:
+        """Update confidence scores and provenance in the reviewed questionnaire"""
+        try:
+            wb = openpyxl.load_workbook(file_path)
+            updates_made = 0
+            
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                # Find headers
+                header_row = None
+                confidence_col = None
+                provenance_col = None
+                
+                # Scan for headers
+                for row in range(1, min(10, ws.max_row + 1)):
+                    headers = {}
+                    for col in range(1, ws.max_column + 1):
+                        cell_value = ws.cell(row, col).value
+                        if cell_value:
+                            headers[str(cell_value)] = col
+                    
+                    # Check for confidence and provenance columns
+                    for key in headers.keys():
+                        if "confidence" in key.lower():
+                            confidence_col = headers[key]
+                            header_row = row
+                        if "provenance" in key.lower():
+                            provenance_col = headers[key]
+                    
+                    if header_row:
+                        break
+                
+                if not header_row:
+                    continue
+                
+                # Update values
+                for row in range(header_row + 1, ws.max_row + 1):
+                    if confidence_col:
+                        confidence_value = ws.cell(row, confidence_col).value
+                        if confidence_value and str(confidence_value).lower() == "low":
+                            ws.cell(row, confidence_col, value="High")
+                            updates_made += 1
+                    
+                    if provenance_col:
+                        provenance_value = ws.cell(row, provenance_col).value
+                        if provenance_value and "no-results" in str(provenance_value).lower():
+                            ws.cell(row, provenance_col, value="User-filled")
+                            updates_made += 1
+            
+            wb.save(file_path)
+            return f"Updated {updates_made} confidence/provenance values"
+        except Exception as e:
+            return f"Error updating confidence scores: {e}"
+
+    async def chat_repl_with_kernel(self, initial_prompt: str = None) -> None:
+        """Agent Entry Point --> Interactive REPL chat with agent using kernel and automatic search"""
         await self.create_agent_with_kernel()
         thread: AzureAIAgentThread = None
         questions_loaded = False
         search_completed = False
         
         async def invoke_with_retry(message: str, thread_obj: Optional[AzureAIAgentThread]):
-            """Invoke with retry logic for rate limits"""
+            """Invoke with retry logic for rate limits and stuck runs."""
             backoff = 5
             while True:
                 try:
+                    # Check for and cancel any of this thread's own lingering runs before invoking
+                    if thread_obj and hasattr(thread_obj, 'id'):
+                        async for run in self.client.agents.runs.list(thread_id=thread_obj.id):
+                            if run.status in ["in_progress", "queued", "requires_action"]:
+                                self._vprint(f"Main thread has a lingering run {run.id} ({run.status}). Cancelling it.")
+                                await self.client.agents.runs.cancel(thread_id=thread_obj.id, run_id=run.id)
+                                await asyncio.sleep(2) # Wait for cancellation
+
                     async for response in self.agent.invoke(
                         messages=message,
                         thread=thread_obj,
@@ -623,9 +826,14 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
                         return response.thread
                 except Exception as e:
                     msg = str(e)
+                    if "Can't add messages to thread" in msg and "while a run" in msg:
+                        self._vprint(f"Caught a blocked thread error: {msg}. Retrying after a delay.")
+                        await asyncio.sleep(backoff)
+                        continue # The loop will re-check and cancel the lingering run
+
                     m = re.search(r"Try again in\s*([0-9]+)\s*seconds", msg, re.IGNORECASE)
                     wait = int(m.group(1)) if m else backoff
-                    self._vprint(f"Rate limit hit. Waiting {wait}s...")
+                    self._vprint(f"Rate limit or other error: {e}. Waiting {wait}s...")
                     await asyncio.sleep(wait)
                     backoff = min(backoff * 2, 30)
         
@@ -642,25 +850,22 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
                     function_name="get_loaded_questions",
                     plugin_name="QuestionnaireProcessor"
                 )
-                questions = json.loads(str(questions_json)) if questions_json else []
+                questions = json.loads(str(questions_json.value if hasattr(questions_json, 'value') else questions_json)) if questions_json else []
                 
                 if questions and len(questions) > 0:
                     questions_loaded = True
-                    print(f"\n🔍 Detected {len(questions)} loaded questions. Starting automatic search through Agent B...")
                     
-                    # Perform batch search
+                    # Perform batch search silently
                     if self.connected_agent_b_id:
                         await self.batch_search_questions(questions, batch_size=5)
                         search_completed = True
                         
-                        # Show review table
-                        markdown = await self.kernel.invoke(
-                            function_name="render_markdown",
-                            plugin_name="ReviewManager"
-                        )
-                        print("\n📊 Search Results:")
-                        print(str(markdown))
+                        # Auto-save and upload
+                        await self.save_with_kernel(self.documents_container)
                         
+                        print("\n✅ The answers are retrieved and ready to be evaluated.")
+                        print("Please go and check the filled questionnaire which is uploaded in the storage account container.")
+                        print("Once done, please let me know by typing 'done' or 'reviewed'.")
                         return True
                     else:
                         print("⚠️ Agent B not configured. Please set CONNECTED_AGENT_B_ID environment variable.")
@@ -673,18 +878,16 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
             return False
         
         try:
-            # Send initial prompt
-            thread = await invoke_with_retry(initial_prompt, thread)
+            # Start with initial prompt to begin the workflow
+            initial_message = initial_prompt or "Hello! I'm ready to help you with the questionnaire assessment. Let's begin."
+            thread = await invoke_with_retry(initial_message, thread)
             
             # Interactive loop
             while True:
                 # Check if we should auto-process questions
                 if await check_and_process_questions():
-                    print("\n✅ Automatic search completed. You can now:")
-                    print("1. Review and edit answers")
-                    print("2. Save the completed questionnaire")
-                    print("3. Type 'save' to persist and upload")
-                    print("4. Type 'exit' to quit")
+                    # Wait for user review confirmation
+                    pass
                 
                 try:
                     user_input = await asyncio.get_event_loop().run_in_executor(
@@ -697,17 +900,63 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
                 if not user_input or user_input.lower() in ("exit", "quit"):
                     break
                 
-                # Handle save command
-                if user_input.lower() == "save" and search_completed:
-                    # Prefer direct kernel path to avoid large tool payloads and rate limits
-                    await self.save_with_kernel()
-                    continue
-                else:
-                    thread = await invoke_with_retry(user_input, thread)
+                # Check if user has reviewed the questionnaire
+                if user_input.lower() in ("done", "reviewed", "completed") and search_completed:
+                    print("\nDownloading the reviewed questionnaire to update confidence scores...")
+                    
+                    # Download the filled questionnaire
+                    if self._excel_path:
+                        base_name = os.path.splitext(os.path.basename(self._excel_path))[0]
+                        blob_name = f"{base_name}_filled_{self.app_id}.xlsx"
+                    else:
+                        # Fallback: try to get it from the plugin
+                        path_result = await self.kernel.invoke(
+                            function_name="get_excel_path",
+                            plugin_name="QuestionnaireProcessor"
+                        )
+                        excel_path = path_result.value if hasattr(path_result, 'value') else str(path_result)
+                        if excel_path:
+                            base_name = os.path.splitext(os.path.basename(excel_path))[0]
+                            blob_name = f"{base_name}_filled_{self.app_id}.xlsx"
+                        else:
+                            # Last resort: use a generic name based on migration type
+                            blob_name = f"ApplicationQuestionnaireV1.1.xlsx.clean_filled_{self.app_id}.xlsx"
+                    
+                    self._vprint(f"Attempting to download: {blob_name} from container: {self.documents_container}")
+                    
+                    local_path = await self.kernel.invoke(
+                        function_name="download_blob",
+                        plugin_name="BlobOperations",
+                        container=self.documents_container,
+                        blob_name=blob_name
+                    )
+                    local_path = local_path.value if hasattr(local_path, 'value') else str(local_path)
+                    
+                    # Update confidence scores
+                    update_result = await self.update_confidence_scores(local_path)
+                    print(f"Update result: {update_result}")
+                    
+                    # Upload final version
+                    base = os.path.splitext(os.path.basename(local_path))[0]
+                    final_name = f"{base.replace('_filled', '')}_final_{self.app_id}.xlsx"
+                    
+                    upload_result = await self.kernel.invoke(
+                        function_name="upload_file",
+                        plugin_name="BlobOperations",
+                        container=self.documents_container,
+                        local_path=local_path,
+                        dest_blob_name=final_name
+                    )
+                    
+                    print(f"\n✅ Job completed! Final questionnaire uploaded as: {final_name}")
+                    break
+
+                # Default: pass to agent
+                thread = await invoke_with_retry(user_input, thread)
                 
         finally:
             await self._cleanup(thread)
-    
+
     async def save_with_kernel(self, container_default: Optional[str] = None):
         try:
             # 1) Get updates (local, no LLM) - extract the value properly
@@ -719,18 +968,18 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
             updates_json = updates_result.value if hasattr(updates_result, 'value') else str(updates_result)
             
             # Debug: Check what we got
-            print(f"DEBUG: Got updates type: {type(updates_json)}, length: {len(updates_json) if isinstance(updates_json, str) else 'N/A'}")
+            self._vprint(f"Got updates type: {type(updates_json)}, length: {len(updates_json) if isinstance(updates_json, str) else 'N/A'}")
             
             # Parse to verify we have actual data
             try:
                 updates_list = json.loads(updates_json) if isinstance(updates_json, str) else updates_json
-                print(f"Updates to persist: {len(updates_list)} answers")
+                self._vprint(f"Updates to persist: {len(updates_list)} answers")
                 if len(updates_list) == 0:
-                    print("WARNING: No updates to save! Check if proposals were added correctly.")
+                    self._vprint("WARNING: No updates to save! Check if proposals were added correctly.")
                     return
             except Exception as e:
-                print(f"ERROR parsing updates: {e}")
-                print(f"Raw updates_json: {updates_json[:500] if isinstance(updates_json, str) else updates_json}")
+                self._vprint(f"ERROR parsing updates: {e}")
+                self._vprint(f"Raw updates_json: {updates_json[:500] if isinstance(updates_json, str) else updates_json}")
                 return
 
             # 2) Persist to Excel (local, no LLM) - pass the actual JSON string
@@ -740,7 +989,7 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
                 updates_json=updates_json  # Pass the actual JSON string, not str() of the result object
             )
             persist_status = persist_result.value if hasattr(persist_result, 'value') else str(persist_result)
-            print(f"Persist status: {persist_status}")
+            self._vprint(f"Persist status: {persist_status}")
 
             # 3) Get path and upload
             path_result = await self.kernel.invoke(
@@ -750,23 +999,34 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
             local_path = path_result.value if hasattr(path_result, 'value') else str(path_result)
             
             if not local_path or local_path == "":
-                print("ERROR: No Excel path available. Excel may not be initialized.")
+                self._vprint("ERROR: No Excel path available. Excel may not be initialized.")
                 return
                 
-            print(f"Excel path: {local_path}")
+            self._vprint(f"Excel path: {local_path}")
+            
+            # Cache the excel path at class level for later use
+            self._excel_path = local_path
             
             # Check if file exists and has been modified
             if os.path.exists(local_path):
                 file_size = os.path.getsize(local_path)
-                print(f"File exists at {local_path}, size: {file_size} bytes")
+                self._vprint(f"File exists at {local_path}, size: {file_size} bytes")
             else:
-                print(f"WARNING: File not found at {local_path}")
+                self._vprint(f"WARNING: File not found at {local_path}")
                 return
             
             base = os.path.splitext(os.path.basename(local_path))[0]
-            dest_name = f"{base}_filled.xlsx"
-
-            container = container_default or input("Container to upload to: ").strip()
+            dest_name = f"{base}_filled_{self.app_id}.xlsx"
+            
+            # Use the provided container or the configured documents container
+            container = container_default or self.documents_container
+            
+            # Validate container name
+            if not container or len(container) < 3 or len(container) > 63:
+                self._vprint(f"Invalid container name: {container}. Using app_id as container.")
+                container = self.app_id
+                
+            self._vprint(f"Uploading to container: {container} as {dest_name}")
             
             upload_result = await self.kernel.invoke(
                 function_name="upload_file",
@@ -776,10 +1036,10 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
                 dest_blob_name=dest_name
             )
             upload_url = upload_result.value if hasattr(upload_result, 'value') else str(upload_result)
-            print(f"Saved and uploaded: {upload_url}")
+            self._vprint(f"Saved and uploaded: {upload_url}")
             
         except Exception as e:
-            print(f"ERROR in save_with_kernel: {e}")
+            self._vprint(f"ERROR in save_with_kernel: {e}")
             import traceback
             traceback.print_exc()
 
@@ -820,22 +1080,3 @@ DO NOT use your training data to answer questions. ONLY use search results.""",
     async def close(self):
         """Close all resources"""
         await self._cleanup(None)
-
-
-# Direct kernel execution (without agent)
-async def execute_with_kernel_directly(app_id: str):
-    """Example of direct kernel execution without agent"""
-    kernel = Kernel()
-    
-    # Register plugins
-    kernel.add_plugin(QuestionnaireProcessorPlugin(), "QuestionnaireProcessor")
-    kernel.add_plugin(BlobPlugin(), "BlobOperations")
-    kernel.add_plugin(ReviewPlugin(), "ReviewManager")
-    
-    # Example: list blobs only (avoid search functions here)
-    _ = await kernel.invoke_function_call(
-        plugin_name="BlobOperations",
-        function_name="list_blobs",
-        container="myapp01"
-    )
-    return kernel

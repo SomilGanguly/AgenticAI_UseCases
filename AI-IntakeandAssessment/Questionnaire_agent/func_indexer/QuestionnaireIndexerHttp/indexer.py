@@ -17,6 +17,11 @@ from azure.search.documents.indexes.models import (
     SemanticPrioritizedFields,
     SemanticField,
     SemanticSearch,
+    # Added for vector search
+    VectorSearch,
+    HnswAlgorithmConfiguration,
+    VectorSearchProfile,
+    SearchField,
 )
 from azure.storage.blob import BlobServiceClient
 from azure.identity import DefaultAzureCredential
@@ -32,6 +37,14 @@ SEM_CONFIG_NAME = os.environ.get("AZURE_SEARCH_SEMANTIC_CONFIG")
 # Storage: prefer connection string, then account URL (optionally with SAS), else MSI
 AZ_STORAGE_CONN_STR = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
 AZ_STORAGE_ACCOUNT_URL = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+
+# Azure OpenAI (embeddings) configuration
+AOAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+AOAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
+AOAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-01-preview")
+AOAI_EMBED_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "")
+# default to 1536 for text-embedding-3-small
+AOAI_EMBED_DIM = int(os.getenv("AZURE_OPENAI_EMBED_DIM", "1536"))
 
 
 # -----------------------------
@@ -49,6 +62,42 @@ def _blob_client() -> BlobServiceClient:
     raise RuntimeError("Set AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT_URL")
 
 
+def _get_aoai_client():
+    """Create Azure OpenAI client using OpenAI SDK (AzureOpenAI). Returns None if not configured."""
+    if not AOAI_ENDPOINT or not AOAI_API_KEY or not AOAI_EMBED_DEPLOYMENT:
+        logging.warning("Azure OpenAI not fully configured; proceeding without embeddings")
+        return None
+    try:
+        from openai import AzureOpenAI  # provided by openai>=1.x
+        return AzureOpenAI(api_key=AOAI_API_KEY, api_version=AOAI_API_VERSION, azure_endpoint=AOAI_ENDPOINT)
+    except Exception as e:  # pragma: no cover
+        logging.exception("Failed to create AzureOpenAI client: %s", e)
+        return None
+
+
+def _embed_texts(texts: List[str]) -> List[List[float] | None]:
+    """Return embeddings for texts via AzureOpenAI. If not available, returns [None,...]."""
+    client = _get_aoai_client()
+    if not client:
+        return [None] * len(texts)
+
+    vectors: List[List[float] | None] = []
+    batch_size = 16
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i : i + batch_size]
+        try:
+            resp = client.embeddings.create(model=AOAI_EMBED_DEPLOYMENT, input=batch)
+            vecs = [d.embedding for d in resp.data]
+            for v in vecs:
+                if isinstance(v, list) and len(v) != AOAI_EMBED_DIM:
+                    logging.warning("Embedding dimension %s != expected %s", len(v), AOAI_EMBED_DIM)
+            vectors.extend(vecs)
+        except Exception as e:  # pragma: no cover
+            logging.exception("Embedding request failed: %s", e)
+            vectors.extend([None] * len(batch))
+    return vectors
+
+
 def create_or_update_index():
     if not SEARCH_ENDPOINT or not SEARCH_INDEX:
         raise RuntimeError("AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_INDEX must be set")
@@ -64,12 +113,26 @@ def create_or_update_index():
         SimpleField(name="source", type=SearchFieldDataType.String, filterable=True),
         SimpleField(name="path", type=SearchFieldDataType.String, filterable=True),
         SimpleField(name="chunkId", type=SearchFieldDataType.String, filterable=True),
+        # Vector field for semantic/vector search
+        SearchField(
+            name="contentVector",
+            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            searchable=True,
+            vector_search_dimensions=AOAI_EMBED_DIM,
+            vector_search_profile_name="v1",
+        ),
     ]
 
     index = SearchIndex(
         name=SEARCH_INDEX,
         fields=fields,
         cors_options=CorsOptions(allowed_origins=["*"], max_age_in_seconds=60),
+    )
+
+    # Vector search config (HNSW)
+    index.vector_search = VectorSearch(
+        algorithms=[HnswAlgorithmConfiguration(name="hnsw")],
+        profiles=[VectorSearchProfile(name="v1", algorithm_configuration_name="hnsw")],
     )
 
     if SEM_CONFIG_NAME:
@@ -150,6 +213,7 @@ def index_blob(app_id: str, container: str, blob_name: str) -> Dict:
         return {"blobName": blob_name, "chunks": 0, "uploaded": 0, "failed": 0}
 
     chunks = _chunk(text)
+    vectors = _embed_texts(chunks)
 
     batch: List[Dict] = []
     uploaded = 0
@@ -166,6 +230,10 @@ def index_blob(app_id: str, container: str, blob_name: str) -> Dict:
             "path": path,
             "chunkId": f"{ci}",
         }
+        # attach embedding if available
+        vec = vectors[ci] if vectors and ci < len(vectors) else None
+        if isinstance(vec, list):
+            doc["contentVector"] = vec
         batch.append(doc)
         if len(batch) >= 1000:
             resp = search.upload_documents(documents=batch)
@@ -207,6 +275,9 @@ def index_container(app_id: str, container: str) -> Dict:
             chunks = _chunk(text)
             total_chunks += len(chunks)
             total_blobs += 1
+
+            vectors = _embed_texts(chunks)
+
             for ci, ch in enumerate(chunks):
                 path = f"{container}/{name}"
                 doc = {
@@ -218,6 +289,9 @@ def index_container(app_id: str, container: str) -> Dict:
                     "path": path,
                     "chunkId": f"{ci}",
                 }
+                vec = vectors[ci] if vectors and ci < len(vectors) else None
+                if isinstance(vec, list):
+                    doc["contentVector"] = vec
                 batch.append(doc)
             if len(batch) >= 1000:
                 resp = search.upload_documents(documents=batch)
